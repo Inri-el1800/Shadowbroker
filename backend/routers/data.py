@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import math
+import os
 import threading
 from typing import Any
 from fastapi import APIRouter, Request, Response, Query, Depends
@@ -31,6 +32,10 @@ class LayerUpdate(BaseModel):
 
 
 class LiveUamapOptInUpdate(BaseModel):
+    opted_in: bool
+
+
+class PredictionMarketsOptInUpdate(BaseModel):
     opted_in: bool
 
 
@@ -420,6 +425,63 @@ def _run_liveuamap_refresh() -> None:
         update_liveuamap()
     except Exception as e:
         logger.warning("LiveUAMap refresh after opt-in failed: %s", e)
+
+
+@router.get("/api/prediction-markets/status", dependencies=[Depends(require_local_operator)])
+async def api_prediction_markets_status():
+    """Whether Polymarket/Kalshi fetches and news market correlation are enabled."""
+    from services.prediction_markets_settings import prediction_markets_status
+
+    return prediction_markets_status()
+
+
+@router.post("/api/prediction-markets/opt-in", dependencies=[Depends(require_local_operator)])
+@limiter.limit("10/minute")
+async def api_prediction_markets_opt_in(body: PredictionMarketsOptInUpdate, request: Request):
+    """Enable or disable prediction market fetches + intercept story correlation."""
+    from services.config import get_settings
+    from services.prediction_markets_settings import (
+        prediction_markets_status,
+        set_prediction_markets_ui_opt_in,
+    )
+    from routers.ai_intel import _write_env_value
+
+    set_prediction_markets_ui_opt_in(body.opted_in)
+    _write_env_value("PREDICTION_MARKETS_ENABLED", "true" if body.opted_in else "false")
+    os.environ["PREDICTION_MARKETS_ENABLED"] = "true" if body.opted_in else "false"
+    get_settings.cache_clear()
+
+    if body.opted_in:
+        threading.Thread(target=_run_prediction_markets_refresh, daemon=True).start()
+    else:
+        threading.Thread(target=_run_prediction_markets_disable, daemon=True).start()
+
+    return prediction_markets_status()
+
+
+def _run_prediction_markets_refresh() -> None:
+    try:
+        from services.fetchers.prediction_markets import fetch_prediction_markets
+        from services.fetchers.news import fetch_news
+
+        fetch_prediction_markets()
+        fetch_news()
+    except Exception as e:
+        logger.warning("Prediction markets refresh after opt-in failed: %s", e)
+
+
+def _run_prediction_markets_disable() -> None:
+    try:
+        from services.fetchers._store import _data_lock, _mark_fresh, latest_data
+        from services.fetchers.news import fetch_news
+
+        with _data_lock:
+            latest_data["prediction_markets"] = []
+            latest_data["trending_markets"] = []
+        _mark_fresh("prediction_markets")
+        fetch_news()
+    except Exception as e:
+        logger.warning("Prediction markets disable cleanup failed: %s", e)
 
 
 @router.post("/api/layers", dependencies=[Depends(require_local_operator)])

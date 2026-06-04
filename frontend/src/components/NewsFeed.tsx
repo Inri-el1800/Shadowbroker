@@ -2,7 +2,9 @@
 
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle, Clock, Minus, Plus, ExternalLink, Brain, Loader2 } from 'lucide-react';
+import { AlertTriangle, Clock, Minus, Plus, ExternalLink, Brain, Loader2, TrendingUp } from 'lucide-react';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import { usePredictionMarketsOptIn } from '@/hooks/usePredictionMarketsOptIn';
 import React, { useEffect, useRef, useCallback } from 'react';
 import WikiImage from '@/components/WikiImage';
 import { fetchWikipediaSummary } from '@/lib/wikimediaClient';
@@ -332,6 +334,9 @@ function NewsFeedInner({ selectedEntity, regionDossier, regionDossierLoading, on
     const [aiSummaryOpen, setAiSummaryOpen] = useState(false);
     const [aiSummary, setAiSummary] = useState<any>(null);
     const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+    const [pmConsentOpen, setPmConsentOpen] = useState(false);
+    const { status: pmStatus, setOptIn: setPmOptIn } = usePredictionMarketsOptIn();
+    const marketsCorrelationEnabled = pmStatus?.enabled ?? false;
     const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
     // Intentionally omitting map click triggers for expanding
@@ -1357,7 +1362,7 @@ function NewsFeedInner({ selectedEntity, regionDossier, regionDossierLoading, on
                                 </span>
                             </div>
                         )}
-                        {item.prediction_odds && item.prediction_odds.consensus_pct != null && (
+                        {marketsCorrelationEnabled && item.prediction_odds && item.prediction_odds.consensus_pct != null && (
                             <div className="border-b border-[var(--border-primary)] pb-2">
                                 <span className="text-[var(--text-muted)] text-[10px] block mb-1.5">MARKET CORRELATION</span>
                                 <div className="p-2 bg-purple-950/30 border border-purple-500/30 rounded-sm">
@@ -1430,7 +1435,37 @@ function NewsFeedInner({ selectedEntity, regionDossier, regionDossierLoading, on
     /* CCTV is now handled by the fullscreen OPTIC INTERCEPT modal in MaplibreViewer */
     if (selectedEntity?.type === 'cctv') return null;
 
+    const pmJitter = pmStatus?.jitter;
+    const pmConsentMessage =
+        'Enabling prediction markets lets this node contact Polymarket and Kalshi over clearnet from your server IP (not through the wormhole). ' +
+        'Matching headlines may show a purple MKT strip with consensus odds. ' +
+        (pmJitter
+            ? `Poll timing is jittered (~${pmJitter.scheduler_interval_minutes} min base + up to ${pmJitter.scheduler_jitter_seconds}s) to reduce obvious patterns. `
+            : 'Poll timing is jittered to reduce obvious patterns. ') +
+        'Wormhole/Tor still only covers private mesh traffic. Turn off anytime with MKT OFF.';
+
     return (
+        <>
+        <ConfirmDialog
+            open={pmConsentOpen}
+            title="Enable prediction market correlation?"
+            message={pmConsentMessage}
+            confirmLabel="Enable MKT"
+            cancelLabel="Cancel"
+            danger={false}
+            onCancel={() => setPmConsentOpen(false)}
+            onConfirm={() => {
+                void (async () => {
+                    try {
+                        await setPmOptIn(true);
+                    } catch (e) {
+                        console.warn('Prediction markets opt-in failed:', e);
+                    } finally {
+                        setPmConsentOpen(false);
+                    }
+                })();
+            }}
+        />
         <motion.div
             initial={{ y: 50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -1485,10 +1520,38 @@ function NewsFeedInner({ selectedEntity, regionDossier, regionDossierLoading, on
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: "auto", opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
-                            className="text-[10px] text-cyan-500/80 mt-1 flex items-center justify-between font-bold relative z-10"
+                            className="text-[10px] text-cyan-500/80 mt-1 flex items-center justify-between font-bold relative z-10 gap-2"
                         >
-                            <span className="px-1 border border-cyan-500/30">SYS.STATUS: MONITORING</span>
-                            <span className="flex items-center gap-1"><Clock size={10} /> {data?.last_updated ? formatTime(data.last_updated) : "SCANNING"}</span>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="px-1 border border-cyan-500/30 shrink-0">SYS.STATUS: MONITORING</span>
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (marketsCorrelationEnabled) {
+                                            void setPmOptIn(false).catch((err) => {
+                                                console.warn('Prediction markets opt-out failed:', err);
+                                            });
+                                        } else {
+                                            setPmConsentOpen(true);
+                                        }
+                                    }}
+                                    className={`shrink-0 flex items-center gap-1 px-1.5 py-0.5 border rounded-sm transition-colors ${
+                                        marketsCorrelationEnabled
+                                            ? 'border-purple-500/50 bg-purple-950/40 text-purple-300'
+                                            : 'border-cyan-800/40 bg-black/40 text-cyan-700 hover:text-purple-300 hover:border-purple-600/40'
+                                    }`}
+                                    title={
+                                        marketsCorrelationEnabled
+                                            ? 'Prediction market correlation on intercept stories (clearnet Polymarket/Kalshi)'
+                                            : 'Enable prediction market correlation on intercept stories'
+                                    }
+                                >
+                                    <TrendingUp size={10} />
+                                    MKT {marketsCorrelationEnabled ? 'ON' : 'OFF'}
+                                </button>
+                            </div>
+                            <span className="flex items-center gap-1 shrink-0"><Clock size={10} /> {data?.last_updated ? formatTime(data.last_updated) : "SCANNING"}</span>
                         </motion.div>
                     )}
                 </AnimatePresence>
@@ -1841,7 +1904,7 @@ function NewsFeedInner({ selectedEntity, regionDossier, regionDossierLoading, on
                                             <span className="text-cyan-300 opacity-90">{item.machine_assessment}</span>
                                         </div>
                                     )}
-                                    {item.prediction_odds && item.prediction_odds.consensus_pct != null && (
+                                    {marketsCorrelationEnabled && item.prediction_odds && item.prediction_odds.consensus_pct != null && (
                                         <div className="mt-1 px-1.5 py-1 bg-purple-950/30 border border-purple-500/30 rounded-sm text-[11px] font-mono flex items-center gap-1.5">
                                             <span className="text-purple-400 font-bold">MKT</span>
                                             <span className="text-purple-300 truncate flex-1" title={item.prediction_odds.title}>{item.prediction_odds.title}</span>
@@ -1933,6 +1996,7 @@ function NewsFeedInner({ selectedEntity, regionDossier, regionDossierLoading, on
 
 
         </motion.div>
+        </>
     );
 }
 

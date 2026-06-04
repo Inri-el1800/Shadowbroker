@@ -19,6 +19,7 @@ import concurrent.futures
 import json
 import math
 import os
+import random
 import threading
 import time
 from datetime import datetime, timedelta
@@ -405,7 +406,6 @@ def update_slow_data():
     logger.info("Slow-tier data update starting...")
     slow_funcs = [
         fetch_news,
-        fetch_prediction_markets,
         fetch_earthquakes,
         fetch_firms_fires,
         fetch_firms_country_fires,
@@ -745,6 +745,27 @@ def start_scheduler():
         id="slow_tier",
         max_instances=1,
         misfire_grace_time=120,
+    )
+
+    # Prediction markets — own jittered cadence (Polymarket/Kalshi clearnet egress).
+    # Kept off the fixed 5-minute slow tier so poll timing is less fingerprintable.
+    from services.fetchers.prediction_markets import fetch_prediction_markets
+
+    _pm_interval_m = max(5, int(os.environ.get("PREDICTION_MARKETS_INTERVAL_MINUTES", "7")))
+    _pm_jitter_s = max(0, int(os.environ.get("PREDICTION_MARKETS_SCHEDULER_JITTER_S", "240")))
+    _pm_initial_max_s = max(0, int(os.environ.get("PREDICTION_MARKETS_INITIAL_DELAY_MAX_S", "180")))
+    _pm_first_run = datetime.utcnow() + timedelta(
+        seconds=random.randint(30, max(30, _pm_initial_max_s))
+    )
+    _scheduler.add_job(
+        lambda: _run_task_with_health(fetch_prediction_markets, "fetch_prediction_markets"),
+        "interval",
+        minutes=_pm_interval_m,
+        jitter=_pm_jitter_s,
+        next_run_time=_pm_first_run,
+        id="prediction_markets",
+        max_instances=1,
+        misfire_grace_time=300,
     )
 
     # Weather alerts — every 5 minutes (time-critical, separate from slow tier)
