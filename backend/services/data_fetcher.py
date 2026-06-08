@@ -76,6 +76,7 @@ from services.fetchers.infrastructure import (  # noqa: F401
     fetch_tinygs,
     fetch_psk_reporter,
 )
+from services.fetchers.road_corridor_sat import fetch_road_corridor_trends  # noqa: F401
 from services.fetchers.geo import (  # noqa: F401
     fetch_ships,
     fetch_airports,
@@ -1058,6 +1059,16 @@ def start_scheduler():
         id="viirs_change",
         max_instances=1,
         misfire_grace_time=600,
+    )
+
+    # Sentinel-2 road corridor freight trends — daily (opt-in, heavy CDSE usage)
+    _scheduler.add_job(
+        lambda: _run_task_with_health(fetch_road_corridor_trends, "fetch_road_corridor_trends"),
+        "interval",
+        hours=24,
+        id="road_corridor_trends",
+        max_instances=1,
+        misfire_grace_time=3600,
     )
 
     # FIMI disinformation index — every 12 hours (weekly editorial feed)

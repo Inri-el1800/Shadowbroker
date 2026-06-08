@@ -365,6 +365,7 @@ wormhole_router = _load_optional_router("routers.wormhole")
 ai_intel_router = _load_optional_router("routers.ai_intel")
 sar_router = _load_optional_router("routers.sar")
 infonet_router = _load_optional_router("routers.infonet")
+road_corridors_router = _load_optional_router("routers.road_corridors")
 
 
 # ---------------------------------------------------------------------------
@@ -3641,6 +3642,7 @@ app.include_router(wormhole_router)
 app.include_router(ai_intel_router)
 app.include_router(sar_router)
 app.include_router(infonet_router)
+app.include_router(road_corridors_router)
 
 from services.data_fetcher import update_all_data
 

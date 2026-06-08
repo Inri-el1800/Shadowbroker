@@ -69,6 +69,7 @@ class DashboardData(TypedDict, total=False):
     sar_scenes: List[Dict[str, Any]]
     sar_anomalies: List[Dict[str, Any]]
     sar_aoi_coverage: List[Dict[str, Any]]
+    road_corridor_trends: Dict[str, Any]
 
 
 # In-memory store
@@ -119,6 +120,7 @@ latest_data: DashboardData = {
     "sar_scenes": [],
     "sar_anomalies": [],
     "sar_aoi_coverage": [],
+    "road_corridor_trends": {"updated_at": None, "corridors": []},
 }
 
 # Per-source freshness timestamps
@@ -328,6 +330,7 @@ active_layers: dict[str, bool] = {
     "ai_intel": True,
     "crowdthreat": False,
     "sar": True,
+    "road_corridor_trends": False,
 }
 
 
